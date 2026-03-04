@@ -254,6 +254,16 @@ Ensure you evaluate ALL parameters from ALL sections. Only return valid JSON. No
         )
 
         result = response.choices[0].message.content
+        
+        # Check if response is empty
+        if not result or result.strip() == "":
+            logger.error(f"OpenAI returned empty response. Full response object: {response}")
+            logger.error(f"Response choices: {response.choices}")
+            return json.dumps({
+                "error": "Empty response from OpenAI API",
+                "details": "The API returned a successful status but with empty content. Check your account billing and model access."
+            })
+        
         logger.info("Audit completed successfully")
         logger.debug(f"Response length: {len(result)} characters")
         if hasattr(response, 'usage'):
@@ -958,15 +968,21 @@ def format_audit_result(json_str: str) -> str:
     """Format audit result JSON into HTML table representation."""
     logger.debug("Formatting audit result as HTML")
     try:
-        data = json.loads(json_str)
+        # Clean up the string - remove leading/trailing whitespace
+        json_str_clean = json_str.strip() if isinstance(json_str, str) else json_str
+        
+        logger.debug(f"Parsing JSON, length: {len(json_str_clean) if isinstance(json_str_clean, str) else 'N/A'}")
+        data = json.loads(json_str_clean)
         logger.debug(f"Successfully parsed audit result JSON with {len(data)} top-level keys")
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
         logger.error(f"Failed to parse audit result JSON: {e}")
-        return f"<p>Error parsing result:</p><pre>{json_str}</pre>"
+        logger.error(f"JSON string type: {type(json_str)}, content preview: {str(json_str)[:100] if json_str else 'Empty'}")
+        return f"<p>Error parsing result:</p><pre>{str(json_str)}</pre>"
     
     audit_name = data.get("audit_name", "Audit Result")
     overall = data.get("overall_score", {})
     summary = data.get("summary", "")
+    
     
     html = f"""
     <style>
