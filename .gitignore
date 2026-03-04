@@ -1,0 +1,33 @@
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+
+# Cache
+.cache/
+.pytest_cache/
