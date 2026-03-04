@@ -1,8 +1,7 @@
-# Virtual Environment
-venv/
-ENV/
-env/
-.venv
+# Environment variables (contains secrets)
+.env
+.env.local
+.env.*.local
 
 # Python
 __pycache__/
@@ -11,7 +10,26 @@ __pycache__/
 *.so
 .Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
 
 # IDE
 .vscode/
@@ -21,13 +39,21 @@ dist/
 *~
 .DS_Store
 
-# Environment variables
-.env
-.env.local
-
 # Logs
 *.log
+logs/
 
 # Cache
 .cache/
 .pytest_cache/
+
+# Testing
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.bak
+
+# OS
+Thumbs.db

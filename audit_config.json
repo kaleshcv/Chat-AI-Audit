@@ -1,0 +1,81 @@
+{
+  "audit_name": "CRM Email QA Audit",
+  "overall_score": {
+    "achieved": 100,
+    "maximum": 100
+  },
+  "sections": [
+    {
+      "section_name": "Issue Handling",
+      "section_score": {
+        "achieved": 30,
+        "maximum": 40
+      },
+      "parameters": [
+        {
+          "parameter_name": "Understanding and Solved Customer's Issue",
+          "weightage": 10,
+          "score": 10
+        },
+        {
+          "parameter_name": "Gave alternatives when required/applicable & Displayed expert product knowledge",
+          "weightage": 10,
+          "score": 0
+        },
+        {
+          "parameter_name": "Coupon code added/Edited Name/Values & Date/Personalised when applicable",
+          "weightage": 10,
+          "score": 10
+        },
+        {
+          "parameter_name": "Answered all questions effectively",
+          "weightage": 10,
+          "score": 10
+        }
+      ]
+    },
+    {
+      "section_name": "Efficiency",
+      "section_score": {
+        "achieved": 20,
+        "maximum": 20
+      },
+      "parameters": [
+        {
+          "parameter_name": "Resolved issue in a timely manner",
+          "weightage": 10,
+          "score": 10
+        },
+        {
+          "parameter_name": "Categorized case properly / Checked other tickets & merged previous communication",
+          "weightage": 10,
+          "score": 10
+        }
+      ]
+    },
+    {
+      "section_name": "Compliance",
+      "section_score": {
+        "achieved": 40,
+        "maximum": 40
+      },
+      "parameters": [
+        {
+          "parameter_name": "Appropriate use of macros",
+          "weightage": 10,
+          "score": 10
+        },
+        {
+          "parameter_name": "Magento utilized correctly",
+          "weightage": 15,
+          "score": 15
+        },
+        {
+          "parameter_name": "Identified correct order type",
+          "weightage": 15,
+          "score": 15
+        }
+      ]
+    }
+  ]
+}
