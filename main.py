@@ -5,12 +5,14 @@ Provides AI-powered quality assurance for email interactions.
 
 import json
 import logging
+import time
 from typing import Optional
 
-from fastapi import FastAPI, Form, Cookie
+from fastapi import FastAPI, Form, Cookie, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from openai import OpenAI
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Import configuration and utilities
 from config import (
@@ -39,25 +41,60 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Logging middleware for request/response tracking
+class LoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware to log HTTP request details and response timing."""
+    
+    async def dispatch(self, request: Request, call_next):
+        """Log request and response information."""
+        start_time = time.time()
+        
+        # Log request
+        logger.debug(f"HTTP Request - Method: {request.method}, Path: {request.url.path}")
+        
+        try:
+            response = await call_next(request)
+            process_time = time.time() - start_time
+            
+            # Log response
+            logger.debug(f"HTTP Response - Path: {request.url.path}, Status: {response.status_code}, Duration: {process_time:.3f}s")
+            
+            return response
+        except Exception as e:
+            process_time = time.time() - start_time
+            logger.error(f"HTTP Error - Path: {request.url.path}, Error: {e}, Duration: {process_time:.3f}s", exc_info=True)
+            raise
+
+
+app.add_middleware(LoggingMiddleware)
+
+
 # Initialize OpenAI client
 try:
     client = OpenAI(api_key=OPENAI_API_KEY)
     logger.info("OpenAI client initialized successfully")
+    logger.debug(f"Using OpenAI model: {OPENAI_MODEL}")
 except Exception as e:
-    logger.error(f"Failed to initialize OpenAI client: {e}")
+    logger.error(f"Failed to initialize OpenAI client: {e}", exc_info=True)
     client = None
 
 
 # Load configuration files
+logger.info("Loading configuration files...")
 audit_config = load_json_file(CONFIG_FILE)
 sop_content = load_text_file(SOP_FILE)
 
 if not audit_config:
     logger.warning("audit_config.json not found or is empty")
     audit_config = {"audit_name": "Email Audit", "sections": []}
+else:
+    logger.info(f"Loaded audit config with {len(audit_config.get('sections', []))} sections")
 
 if not sop_content:
     logger.warning("sop_knowledge_base.txt not found or is empty")
+else:
+    logger.info(f"Loaded SOP knowledge base ({len(sop_content)} characters)")
 
 
 
@@ -101,11 +138,15 @@ def run_audit(email_thread: str) -> str:
     Returns:
         JSON string with audit results
     """
+    logger.info("Starting audit process")
+    logger.debug(f"Email thread length: {len(email_thread)} characters")
+    
     if not client:
-        logger.error("OpenAI client not initialized")
+        logger.error("OpenAI client not initialized - cannot proceed with audit", exc_info=True)
         return json.dumps({"error": "Service unavailable"})
 
     # Validate input
+    logger.debug("Validating email thread input")
     is_valid, error_msg = validate_email_thread(email_thread)
     if not is_valid:
         logger.warning(f"Invalid email thread: {error_msg}")
@@ -113,6 +154,7 @@ def run_audit(email_thread: str) -> str:
 
     try:
         # Build criteria from audit configuration
+        logger.debug("Building audit criteria from configuration")
         criteria_parts = []
         section_info = {}
         
@@ -134,9 +176,11 @@ def run_audit(email_thread: str) -> str:
                     section_info[section_name]["parameters"].append(param_name)
                     criteria_parts.append(f"  - {param_name} (weightage: {weightage})")
         
+        logger.debug(f"Built criteria with {len(criteria_parts)} parts for {len(section_info)} sections")
         criteria = "\n".join(criteria_parts)
 
         # Build audit prompt
+        logger.debug("Building audit prompt")
         prompt = f"""
 You are a Professional Email QA Auditor.
 
@@ -200,9 +244,10 @@ Ensure you evaluate ALL parameters from ALL sections. Only return valid JSON. No
 """
 
         logger.info("Sending audit request to OpenAI API")
+        logger.debug(f"Using model: {OPENAI_MODEL}, temperature: {OPENAI_TEMPERATURE}")
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            temperature=0.1,
+            model=OPENAI_MODEL,
+            temperature=OPENAI_TEMPERATURE,
             messages=[
                 {"role": "user", "content": prompt}
             ]
@@ -210,130 +255,50 @@ Ensure you evaluate ALL parameters from ALL sections. Only return valid JSON. No
 
         result = response.choices[0].message.content
         logger.info("Audit completed successfully")
+        logger.debug(f"Response length: {len(result)} characters")
+        if hasattr(response, 'usage'):
+            logger.debug(f"API tokens used - prompt: {response.usage.prompt_tokens}, completion: {response.usage.completion_tokens}, total: {response.usage.total_tokens}")
         return result
 
     except Exception as e:
-        logger.error(f"Error during audit execution: {e}")
+        logger.error(f"Error during audit execution: {e}", exc_info=True)
         return json.dumps({
             "error": "Failed to process audit",
             "details": str(e)
         })
 
-    # Build criteria from sections and parameters
-    criteria_parts = []
-    section_info = {}
-    
-    for section in audit_config["sections"]:
-        section_name = section["section_name"]
-        section_info[section_name] = {
-            "max_score": section["section_score"]["maximum"],
-            "parameters": []
-        }
-        
-        criteria_parts.append(f"\n{section_name}:")
-        for param in section["parameters"]:
-            param_name = param["parameter_name"]
-            weightage = param["weightage"]
-            section_info[section_name]["parameters"].append(param_name)
-            criteria_parts.append(f"  - {param_name} (weightage: {weightage})")
-    
-    criteria = "\n".join(criteria_parts)
-
-    prompt = f"""
-You are a Professional Email QA Auditor.
-
-Your task:
-
-1. Carefully read the EMAIL THREAD provided below.
-2. Identify the customer query/issue and the agent response(s) within the thread.
-3. Evaluate the agent's response(s) based on ALL audit parameters organized by sections below.
-4. Audit strictly according to:
-   - The SOP below
-   - ALL parameters in each section below
-5. For each parameter, provide:
-   - A score (0-10 scale based on weightage max)
-   - Clear justification
-6. Do not mark down an parameter if the parameter is not applicable to the email thread. Instead, mark it as N/A and give full score of that parameter.
-
-=====================
-SOP KNOWLEDGE BASE
-=====================
-{sop_content}
-
-=====================
-AUDIT SECTIONS & PARAMETERS
-=====================
-{criteria}
-
-=====================
-EMAIL THREAD
-=====================
-{email_thread}
-
-Return STRICT JSON in this format:
-
-{{
-  "audit_name": "{audit_config['audit_name']}",
-  "sections": [
-    {{
-      "section_name": "Section Name",
-      "section_score": {{
-        "achieved": number,
-        "maximum": number
-      }},
-      "parameters": [
-        {{
-          "parameter_name": "Parameter name",
-          "weightage": number,
-          "score": number,
-          "reason": "Clear justification referencing the email thread and SOP where applicable"
-        }}
-      ]
-    }}
-  ],
-  "overall_score": {{
-    "achieved": number,
-    "maximum": 100
-  }},
-  "summary": "Overall performance summary mentioning whether agent correctly handled the customer issue"
-}}
-
-Ensure you evaluate ALL parameters from ALL sections. Only return valid JSON. No extra text.
-"""
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0.1,
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    return response.choices[0].message.content
-
 
 def validate_auth(username: str, password: str) -> bool:
     """Safely validate user credentials."""
+    logger.debug(f"Validating credentials for user: {username}")
     # Use constant-time comparison to prevent timing attacks
     username_match = username == DEMO_USERNAME
     password_match = password == DEMO_PASSWORD
-    return username_match and password_match
+    is_valid = username_match and password_match
+    logger.debug(f"Credential validation result: {'success' if is_valid else 'failure'}")
+    return is_valid
 
 
 def check_auth(logged_in: Optional[str]) -> bool:
     """Check if user is authenticated."""
-    return logged_in == "true"
+    is_authenticated = logged_in == "true"
+    logger.debug(f"Authentication check: {is_authenticated}")
+    return is_authenticated
 
 
 @app.get("/", response_class=HTMLResponse)
 def root(logged_in: Optional[str] = Cookie(None)):
+    logger.info("GET / - Root endpoint accessed")
     if logged_in:
+        logger.debug("User is authenticated, redirecting to dashboard")
         return RedirectResponse(url="/dashboard")
+    logger.debug("User is not authenticated, redirecting to login")
     return RedirectResponse(url="/login")
 
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page():
+    logger.info("GET /login - Login page requested")
     return """
     <html>
         <head>
@@ -460,10 +425,12 @@ def login_page():
 @app.post("/login-submit", response_class=HTMLResponse)
 def login_submit(username: str = Form(...), password: str = Form(...)):
     """Handle login request with validation."""
+    logger.info("POST /login-submit - Login attempt")
+    logger.debug(f"Login attempt for username: {username}")
     try:
         # Validate input
         if not username or not password:
-            logger.warning("Login attempt with empty credentials")
+            logger.warning(f"Login attempt with empty credentials")
             return _error_page("Login Failed", "Invalid username or password.", "/login")
         
         # Validate credentials
@@ -477,7 +444,7 @@ def login_submit(username: str = Form(...), password: str = Form(...)):
         return _error_page("Login Failed", "Invalid username or password.", "/login")
     
     except Exception as e:
-        logger.error(f"Error during login: {e}")
+        logger.error(f"Error during login: {e}", exc_info=True)
         return _error_page("Error", "An error occurred during login. Please try again.", "/login")
 
 
@@ -506,9 +473,12 @@ def _error_page(title: str, message: str, redirect_url: str) -> str:
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(logged_in: Optional[str] = Cookie(None)):
     """Display dashboard for authenticated users."""
+    logger.info("GET /dashboard - Dashboard accessed")
     if not check_auth(logged_in):
+        logger.warning("Unauthorized access attempt to dashboard")
         return RedirectResponse(url="/login")
     
+    logger.debug("User is authenticated, generating dashboard data")
     data = DUMMY_AUDIT_DATA
     
     # Generate parameter score bars
@@ -821,10 +791,12 @@ def dashboard(logged_in: Optional[str] = Cookie(None)):
 @app.get("/audit-page", response_class=HTMLResponse)
 def form_page(logged_in: Optional[str] = Cookie(None)):
     """Display audit form for authenticated users."""
+    logger.info("GET /audit-page - Audit form page requested")
     if not check_auth(logged_in):
         logger.warning("Unauthorized access attempt to audit page")
         return RedirectResponse(url="/login")
     
+    logger.debug("User is authenticated, displaying audit form")
     return """
     <html>
         <head>
@@ -976,16 +948,20 @@ def form_page(logged_in: Optional[str] = Cookie(None)):
 @app.get("/logout", response_class=HTMLResponse)
 def logout():
     """Handle user logout."""
-    logger.info("User logged out")
+    logger.info("GET /logout - User logout initiated")
     response = RedirectResponse(url="/login")
     response.delete_cookie(key="logged_in")
+    logger.debug("Logout cookie deleted, user session terminated")
     return response
 
 def format_audit_result(json_str: str) -> str:
     """Format audit result JSON into HTML table representation."""
+    logger.debug("Formatting audit result as HTML")
     try:
         data = json.loads(json_str)
-    except json.JSONDecodeError:
+        logger.debug(f"Successfully parsed audit result JSON with {len(data)} top-level keys")
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse audit result JSON: {e}")
         return f"<p>Error parsing result:</p><pre>{json_str}</pre>"
     
     audit_name = data.get("audit_name", "Audit Result")
@@ -1179,12 +1155,16 @@ def audit(
     logged_in: Optional[str] = Cookie(None)
 ):
     """Process audit request for authenticated users."""
+    logger.info("POST /audit - Audit request received")
+    logger.debug(f"Email thread length: {len(email_thread)} characters")
+    
     if not check_auth(logged_in):
         logger.warning("Unauthorized audit request")
         return RedirectResponse(url="/login")
 
     try:
         # Validate input
+        logger.debug("Validating email thread input")
         is_valid, error_msg = validate_email_thread(
             email_thread,
             min_length=MIN_EMAIL_LENGTH,
@@ -1204,9 +1184,10 @@ def audit(
                 logger.error(f"Audit error: {result_data.get('error')}")
                 return _error_page("Audit Error", result_data.get("error", "Unknown error"), "/audit-page")
         except Exception as e:
-            logger.error(f"Error parsing audit response: {e}")
+            logger.error(f"Error parsing audit response: {e}", exc_info=True)
             return _error_page("Error", "Invalid response from audit service", "/audit-page")
         
+        logger.info("Audit completed successfully, formatting results")
         formatted_result = format_audit_result(result)
 
         return f"""
@@ -1253,5 +1234,5 @@ def audit(
     """
     
     except Exception as e:
-        logger.error(f"Error processing audit: {e}")
+        logger.error(f"Error processing audit: {e}", exc_info=True)
         return _error_page("Error", "An error occurred while processing your audit. Please try again.", "/audit-page")

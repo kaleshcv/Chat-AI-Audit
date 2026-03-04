@@ -22,9 +22,12 @@ def load_json_file(file_path: Path) -> dict:
     Returns:
         Dictionary from JSON file, or empty dict if error
     """
+    logger.info(f"Loading JSON file: {file_path}")
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            logger.debug(f"Successfully loaded JSON file with {len(data)} items")
+            return data
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
         return {}
@@ -32,7 +35,7 @@ def load_json_file(file_path: Path) -> dict:
         logger.error(f"Invalid JSON in {file_path}: {e}")
         return {}
     except Exception as e:
-        logger.error(f"Error reading {file_path}: {e}")
+        logger.error(f"Error reading {file_path}: {e}", exc_info=True)
         return {}
 
 
@@ -46,14 +49,17 @@ def load_text_file(file_path: Path) -> str:
     Returns:
         File content as string, or empty string if error
     """
+    logger.info(f"Loading text file: {file_path}")
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
+            content = f.read()
+            logger.debug(f"Successfully loaded text file ({len(content)} characters)")
+            return content
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
         return ""
     except Exception as e:
-        logger.error(f"Error reading {file_path}: {e}")
+        logger.error(f"Error reading {file_path}: {e}", exc_info=True)
         return ""
 
 
@@ -69,17 +75,26 @@ def validate_email_thread(email_thread: str, min_length: int = 10, max_length: i
     Returns:
         Tuple of (is_valid, error_message)
     """
+    logger.debug(f"Validating email thread: min_length={min_length}, max_length={max_length}")
+    
     if not email_thread:
+        logger.warning("Validation failed: Email thread is empty")
         return False, "Email thread cannot be empty"
     
     email_thread = email_thread.strip()
+    thread_length = len(email_thread)
     
-    if len(email_thread) < min_length:
-        return False, f"Email thread is too short (minimum {min_length} characters)"
+    if thread_length < min_length:
+        error_msg = f"Email thread is too short (minimum {min_length} characters, got {thread_length})"
+        logger.warning(f"Validation failed: {error_msg}")
+        return False, error_msg
     
-    if len(email_thread) > max_length:
-        return False, f"Email thread is too long (maximum {max_length} characters)"
+    if thread_length > max_length:
+        error_msg = f"Email thread is too long (maximum {max_length} characters, got {thread_length})"
+        logger.warning(f"Validation failed: {error_msg}")
+        return False, error_msg
     
+    logger.debug(f"Email thread validation passed (length: {thread_length})")
     return True, ""
 
 
@@ -93,10 +108,16 @@ def safe_json_parse(json_str: str) -> dict:
     Returns:
         Parsed dictionary or empty dict if error
     """
+    logger.debug("Parsing JSON string")
     try:
-        return json.loads(json_str)
+        data = json.loads(json_str)
+        logger.debug(f"Successfully parsed JSON with {len(data)} top-level keys")
+        return data
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON: {e}")
+        logger.error(f"Failed to parse JSON: {e}", exc_info=True)
+        return {}
+    except Exception as e:
+        logger.error(f"Unexpected error parsing JSON: {e}", exc_info=True)
         return {}
 
 
@@ -110,7 +131,14 @@ def escape_html(text: str) -> str:
     Returns:
         Escaped text safe for HTML output
     """
-    return escape(text)
+    logger.debug(f"Escaping HTML text ({len(text)} characters)")
+    try:
+        escaped = escape(text)
+        logger.debug(f"HTML escape completed successfully")
+        return escaped
+    except Exception as e:
+        logger.error(f"Error escaping HTML: {e}", exc_info=True)
+        return text
 
 
 def get_score_color(score: float, max_score: float) -> str:
@@ -124,14 +152,21 @@ def get_score_color(score: float, max_score: float) -> str:
     Returns:
         CSS class name for color
     """
+    logger.debug(f"Calculating score color: score={score}, max_score={max_score}")
+    
     if max_score == 0:
+        logger.debug("Max score is 0, returning score-medium")
         return "score-medium"
     
     percentage = (score / max_score) * 100
+    logger.debug(f"Score percentage: {percentage:.2f}%")
     
     if percentage >= 80:
+        logger.debug("Score percentage >= 80, returning score-high")
         return "score-high"
     elif percentage >= 50:
+        logger.debug("Score percentage >= 50, returning score-medium")
         return "score-medium"
     else:
+        logger.debug("Score percentage < 50, returning score-low")
         return "score-low"
