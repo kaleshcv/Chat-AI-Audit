@@ -47,6 +47,10 @@ logs/
 .cache/
 .pytest_cache/
 
+# OS
+.DS_Store
+Thumbs.db
+
 # Testing
 .coverage
 htmlcov/
@@ -54,6 +58,3 @@ htmlcov/
 # Temporary files
 *.tmp
 *.bak
-
-# OS
-Thumbs.db
